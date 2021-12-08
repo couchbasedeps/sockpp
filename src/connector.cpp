@@ -36,6 +36,9 @@
 
 #include "sockpp/connector.h"
 #include <cerrno>
+#ifndef WIN32
+#include <sys/poll.h>
+#endif
 
 namespace sockpp {
 
@@ -92,6 +95,7 @@ bool connector::connect(const sock_address& addr, std::chrono::microseconds time
     set_non_blocking(true);
     if (!check_ret_bool(::connect(handle(), addr.sockaddr_ptr(), addr.size()))) {
         if (last_error() == ERR_IN_PROGRESS || last_error() == ERR_WOULD_BLOCK) {
+#ifdef WIN32
             // Non-blocking connect -- call `select` to wait until the timeout:
         	// Note:  Windows returns errors in exceptset so check it too, the
         	// logic afterwords doesn't change
@@ -102,6 +106,10 @@ bool connector::connect(const sock_address& addr, std::chrono::microseconds time
         	fd_set exceptset = readset;
             timeval tv = to_timeval(timeout);
             int n = check_ret(::select(handle()+1, &readset, &writeset, &exceptset, &tv));
+#else
+            pollfd handle_ = { handle(), POLLIN|POLLOUT, 0 };
+            int n = check_ret(::poll(&handle_, 1, timeout.count()));
+#endif
 
             if (n > 0) {
                 // Got a socket event, but it might be an error, so check:

@@ -108,7 +108,7 @@ bool connector::connect(const sock_address& addr, std::chrono::microseconds time
             int n = check_ret(::select(handle()+1, &readset, &writeset, &exceptset, &tv));
 #else
             pollfd handle_ = { handle(), POLLIN|POLLOUT, 0 };
-            int n = check_ret(::poll(&handle_, 1, timeout.count()));
+            int n = check_ret(::poll(&handle_, 1, (int)timeout.count()));
 #endif
 
             if (n > 0) {

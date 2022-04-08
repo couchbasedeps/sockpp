@@ -128,7 +128,7 @@ namespace sockpp {
         RootCertLocator root_cert_locator_;
         std::unique_ptr<cert> root_certs_;
         std::unique_ptr<cert> pinned_cert_;
-        int pinned_cert_validation_result_;
+        bool pinned_cert_validation_result_;
         std::string received_cert_data_;
 
         std::unique_ptr<cert> identity_cert_;

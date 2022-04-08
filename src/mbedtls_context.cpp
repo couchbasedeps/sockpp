@@ -549,7 +549,7 @@ namespace sockpp {
 
     mbedtls_context::mbedtls_context(role_t r)
     :ssl_config_(new mbedtls_ssl_config),
-     pinned_cert_validation_result_(0)
+     pinned_cert_validation_result_(false)
     {
         mbedtls_ssl_config_init(ssl_config_.get());
         mbedtls_ssl_conf_rng(ssl_config_.get(), mbedtls_ctr_drbg_random, get_drbg_context());
@@ -677,8 +677,8 @@ namespace sockpp {
     // Callback from mbedTLS cert validation (see above)
     //
     // When a pinned cert is specified, the verify_callback will compare the pinned cert with
-    // each cert in the chain. If one of the certs in the chain matches with the pinned cert,
-    // the server servers are trusted.
+    // each cert in the chain. If the pinned cert matches one of the certs in the chain, the
+    // presented cert (leaf cert) is trusted.
     //
     // The verify_callback is called for each cert in the chain from root to leaf cert. The
     // pinned_cert_validation_result_ will store the previous comparison result. If the
@@ -688,7 +688,7 @@ namespace sockpp {
     // to the status flags. The flags of the parent certs are ignored (clear).
     //
     int mbedtls_context::verify_callback(mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
-        if (pinned_cert_ && pinned_cert_validation_result_ == 0) {
+        if (pinned_cert_ && !pinned_cert_validation_result_) {
             pinned_cert_validation_result_ = (crt->raw.len == pinned_cert_->raw.len &&
                                               0 == memcmp(crt->raw.p, pinned_cert_->raw.p, crt->raw.len));
         }

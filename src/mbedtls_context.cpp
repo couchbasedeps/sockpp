@@ -673,32 +673,46 @@ namespace sockpp {
     }
 
 
-    // callback from mbedTLS cert validation (see above)
+    // Callback from mbedTLS cert validation (see above)
+    //
+    // When a pinned cert is specified, the verify_callback will compare the pinned cert with
+    // each cert in the chain. If the pinned cert matches one of the certs in the chain, the
+    // presented cert (leaf cert) is trusted.
+    //
+    // The verify_callback is called for each cert in the chain from root to leaf cert. The
+    // pinned_cert_validation_result_ will store the previous comparison result. If the
+    // comparison result is already matched, the comparison will be skipped.
+    //
+    // The last callback for the leaf cert is where the comparison or verification is set
+    // to the status flags. The flags of the parent certs are ignored (clear).
+    //
     int mbedtls_context::verify_callback(mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
-        if (depth != 0) {
-            if(pinned_cert_) {
-                // We only care that the end cert matches, clear all other errors
-                *flags = 0;
+        if (pinned_cert_ && !pinned_cert_validation_result_) {
+            pinned_cert_validation_result_ = (crt->raw.len == pinned_cert_->raw.len &&
+                                              0 == memcmp(crt->raw.p, pinned_cert_->raw.p, crt->raw.len));
+        }
+        
+        if (depth == 0) { // leaf cert
+            received_cert_data_ = string((const char *)crt->raw.p, crt->raw.len);
+            
+            int status = -1;
+            if (pinned_cert_) {
+                status = pinned_cert_validation_result_;
+            } else if (auto &callback = get_auth_callback(); callback) {
+                string certData((const char*)crt->raw.p, crt->raw.len);
+                status = callback(certData);
             }
             
-            return 0;
-        }
-
-        int status = -1;
-        received_cert_data_ = string((const char *)crt->raw.p, crt->raw.len);
-        
-        if (pinned_cert_) {
-            status = (crt->raw.len == pinned_cert_->raw.len
-                      && 0 == memcmp(crt->raw.p, pinned_cert_->raw.p, crt->raw.len));
-        } else if (auto &callback = get_auth_callback(); callback) {
-            string certData((const char*)crt->raw.p, crt->raw.len);
-            status = callback(certData);
-        }
-        
-        if (status > 0) {
-            *flags &= ~(MBEDTLS_X509_BADCERT_NOT_TRUSTED | MBEDTLS_X509_BADCERT_CN_MISMATCH);
-        } else if (status == 0) {
-            *flags |= MBEDTLS_X509_BADCERT_OTHER;
+            if (status > 0) {
+                *flags &= ~(MBEDTLS_X509_BADCERT_NOT_TRUSTED | MBEDTLS_X509_BADCERT_CN_MISMATCH);
+            } else if (status == 0) {
+                *flags |= MBEDTLS_X509_BADCERT_OTHER;
+            }
+        } else {
+            if (pinned_cert_) {
+                // We only care the result when last callback is called, clear all other errors
+                *flags = 0;
+            }
         }
         return 0;
     }

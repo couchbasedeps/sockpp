@@ -548,8 +548,7 @@ namespace sockpp {
 
 
     mbedtls_context::mbedtls_context(role_t r)
-    :ssl_config_(new mbedtls_ssl_config),
-     pinned_cert_validation_result_(false)
+    :ssl_config_(new mbedtls_ssl_config)
     {
         mbedtls_ssl_config_init(ssl_config_.get());
         mbedtls_ssl_conf_rng(ssl_config_.get(), mbedtls_ctr_drbg_random, get_drbg_context());

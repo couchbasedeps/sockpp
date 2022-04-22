@@ -35,9 +35,13 @@
 // --------------------------------------------------------------------------
 
 #include "sockpp/connector.h"
+#include "sockpp/exception.h"
 #include <cerrno>
 #ifndef WIN32
 #include <sys/poll.h>
+#endif
+#ifdef __APPLE__
+#include <net/if.h>
 #endif
 
 namespace sockpp {
@@ -71,10 +75,13 @@ bool connector::recreate(const sock_address& addr)
 
 /////////////////////////////////////////////////////////////////////////////
 
-bool connector::connect(const sock_address& addr)
+bool connector::connect(const sock_address& addr, std::optional<Interface> inf)
 {
 	if (!recreate(addr))
 		return false;
+    
+    if (inf && !set_network_interface(*inf))
+        return false;
 
 	if (!check_ret_bool(::connect(handle(), addr.sockaddr_ptr(), addr.size())))
 		return close_on_err();
@@ -84,12 +91,15 @@ bool connector::connect(const sock_address& addr)
 
 /////////////////////////////////////////////////////////////////////////////
 
-bool connector::connect(const sock_address& addr, std::chrono::microseconds timeout)
+bool connector::connect(const sock_address& addr, std::chrono::microseconds timeout, std::optional<Interface> inf)
 {
     if (timeout.count() <= 0)
-        return connect(addr);
+        return connect(addr, inf);
 
     if (!recreate(addr))
+        return false;
+    
+    if (inf && !set_network_interface(*inf))
         return false;
 
     set_non_blocking(true);
@@ -130,6 +140,39 @@ bool connector::connect(const sock_address& addr, std::chrono::microseconds time
 
     set_non_blocking(false);
 	return true;
+}
+
+bool connector::set_network_interface(const Interface& inf)
+{
+    auto addrFamily = family();
+    
+    // For AF_UNSPEC, assume IPv4:
+    if (addrFamily == AF_UNSPEC)
+        addrFamily = AF_INET;
+    
+    if ((addrFamily != AF_INET && addrFamily != AF_INET6) || addrFamily != inf.family())
+        throw sys_error(EAFNOSUPPORT);
+    
+#if defined(__APPLE__)
+    auto index = if_nametoindex(inf.name().c_str());
+    if (index == 0) {
+        set_last_error();
+        return false;
+    }
+    if (addrFamily == AF_INET)
+        return set_option(IPPROTO_IP, IP_BOUND_IF, &index, sizeof(index));
+    else
+        return set_option(IPPROTO_IPV6, IPV6_BOUND_IF, &index, sizeof(index));
+#elif defined(_WIN32)
+    if (addrFamily == AF_INET)
+        return set_option(IPPROTO_IP, IP_UNICAST_IF, &(inf.addr4()), sizeof(inf.addr4()));
+    else
+        return set_option(IPPROTO_IPV6, IPV6_UNICAST_IF, &(inf.addr6()), sizeof(inf.addr6()));
+#elif defined(__linux__)
+    return set_option(SOL_SOCKET, SO_BINDTODEVICE, inf.name().c_str(), inf.name().size());
+#else
+    throw sys_error(ENOTSUP);
+#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////

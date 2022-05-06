@@ -49,10 +49,32 @@
 
 #include "sockpp/stream_socket.h"
 #include "sockpp/sock_address.h"
+#include <optional>
 
 namespace sockpp {
 
 /////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Class for storing network interface information.
+ */
+class Interface
+{
+    std::string _name;
+    uint8_t _family;
+    in_addr _addr4;
+    in6_addr _addr6;
+    
+public:
+    
+    Interface(std::string name, in_addr addr4)   : _name(name), _addr4(addr4) {_family = AF_INET;}
+    Interface(std::string name, in6_addr addr6)  : _name(name), _addr6(addr6) {_family = AF_INET6;}
+    
+    const std::string& name() const             {return _name;}
+    uint8_t family() const                      {return _family;}
+    const in_addr& addr4() const                {return _addr4;}
+    const in6_addr& addr6() const               {return _addr6;}
+};
 
 /**
  * Class to create a client stream connection.
@@ -79,17 +101,27 @@ public:
 	/**
 	 * Creates the connector and attempts to connect to the specified
 	 * address.
-	 * @param addr The remote server address. 
+	 * @param addr The remote server address.
+     * @param inf The interface used for connecting to the server. If not specified, an interface based on the routing table will be used.
+     * @throw EAFNOSUPPORT error if the specified interface's address family doesn't match with the server's address family
 	 */
-	connector(const sock_address& addr) { connect(addr); }
+	connector(const sock_address& addr, std::optional<Interface> inf=std::nullopt) {
+        connect(addr, inf);
+    }
 	/**
 	 * Creates the connector and attempts to connect to the specified
 	 * address, with a timeout.
      * If the operation times out, the \ref last_error will be set to ETIMEOUT.
 	 * @param addr The remote server address.
      * @param t The duration after which to give up. Zero means never.
+     * @param inf The interface used for connecting to the server. If not specified, an interface based on the routing table will be used.
+     * @throw EAFNOSUPPORT error if the specified interface's address family doesn't match with the server's address family
 	 */
-	connector(const sock_address& addr, std::chrono::milliseconds t) { connect(addr, t); }
+	connector(const sock_address& addr,
+              std::chrono::milliseconds t,
+              std::optional<Interface> inf=std::nullopt) {
+        connect(addr, t, inf);
+    }
 	/**
 	 * Move constructor.
 	 * Creates a connector by moving the other connector to this one.
@@ -119,9 +151,11 @@ public:
      * If the socket is currently connected, this will close the current
      * connection and open the new one.
 	 * @param addr The remote server address.
+     * @param inf The interface used for connecting to the server. If not specified, an interface based on the routing table will be used.
 	 * @return @em true on success, @em false on error
+     * @throw EAFNOSUPPORT error if the specified interface's address family doesn't match with the server's address family
 	 */
-	bool connect(const sock_address& addr);
+	bool connect(const sock_address& addr, std::optional<Interface> inf=std::nullopt);
 	/**
      * Attempts to connect to the specified server, with a timeout.
      * If the socket is currently connected, this will close the current
@@ -129,9 +163,17 @@ public:
      * If the operation times out, the \ref last_error will be set to ETIMEOUT.
 	 * @param addr The remote server address.
      * @param timeout The duration after which to give up. Zero means never.
+     * @param inf The interface used for connecting to the server. If not specified, an interface based on the routing table will be used.
 	 * @return @em true on success, @em false on error
+     * @throw EAFNOSUPPORT error if the specified interface's address family doesn't match with the server's address family
 	 */
-	bool connect(const sock_address& addr, std::chrono::microseconds timeout);
+	bool connect(const sock_address& addr,
+                 std::chrono::microseconds timeout,
+                 std::optional<Interface> inf=std::nullopt);
+    
+private:
+    /** Set network interface option to the socket. */
+    bool set_network_interface(const Interface& inf);
 };
 
 /////////////////////////////////////////////////////////////////////////////

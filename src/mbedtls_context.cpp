@@ -337,10 +337,12 @@ namespace sockpp {
 
 
         // Translates mbedTLS error code to POSIX (errno)
+        // Do not return 0 from this function, causes an assertion
+        // failure in LiteCore TCPSocket::checkStreamError()
         int translate_mbed_err(int mbedErr) {
             switch (mbedErr) {
                 case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
-                    return 0;
+                    return ECONNRESET;
                 case MBEDTLS_ERR_SSL_WANT_READ:
                 case MBEDTLS_ERR_SSL_WANT_WRITE:
                     log(3, "mbedtls_socket returning EWOULDBLOCK");

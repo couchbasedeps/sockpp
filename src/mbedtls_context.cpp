@@ -37,6 +37,7 @@
 #include "sockpp/mbedtls_context.h"
 #include "sockpp/connector.h"
 #include "sockpp/exception.h"
+#include <mbedtls/base64.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/debug.h>
 #include <mbedtls/entropy.h>
@@ -592,12 +593,20 @@ namespace sockpp {
         // Construct the cert chain including all intermediates in PEM format:
         string certData;
         for (auto crt = child; crt; crt = crt->next) {
-            size_t olen = 0;
-            unsigned char buf[10000];
-            int ret = mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n",
+            int ret = 0;
+            size_t olen = 10000; // initial buffer size
+            std::vector<unsigned char> buf;
+            for (int i = 0; i < 2; i++) {
+                buf.resize(olen);
+                ret = mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n",
                                                "-----END CERTIFICATE-----\n",
                                                crt->raw.p, crt->raw.len,
-                                               buf, sizeof(buf), &olen);
+                                               buf.data(), buf.size(), &olen);
+                if (ret != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) {
+                    break;
+                }
+            }
+            
             if (ret != 0) {
                 if (ret > 0) {
                     ret = MBEDTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
@@ -609,7 +618,7 @@ namespace sockpp {
             if (olen > 0 && buf[olen-1] == '\0') {
                 olen = olen - 1; // Not include '\0'
             }
-            certData.append((const char*)buf, olen);
+            certData.append((const char*)buf.data(), olen);
         }
         
         string rootData;

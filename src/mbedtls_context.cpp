@@ -37,11 +37,13 @@
 #include "sockpp/mbedtls_context.h"
 #include "sockpp/connector.h"
 #include "sockpp/exception.h"
+#include <mbedtls/base64.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/debug.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/net_sockets.h>
+#include <mbedtls/pem.h>
 #include <mbedtls/ssl.h>
 #include <mutex>
 #include <chrono>
@@ -587,7 +589,38 @@ namespace sockpp {
     {
         if (!root_cert_locator_)
             return -1;
-        string certData((const char*)child->raw.p, child->raw.len);
+        
+        // Construct the cert chain including all intermediates in PEM format:
+        string certData;
+        for (auto crt = child; crt; crt = crt->next) {
+            int ret = 0;
+            size_t olen = 10000; // initial buffer size
+            std::vector<unsigned char> buf;
+            for (int i = 0; i < 2; i++) {
+                buf.resize(olen);
+                ret = mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n",
+                                               "-----END CERTIFICATE-----\n",
+                                               crt->raw.p, crt->raw.len,
+                                               buf.data(), buf.size(), &olen);
+                if (ret != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) {
+                    break;
+                }
+            }
+            
+            if (ret != 0) {
+                if (ret > 0) {
+                    ret = MBEDTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
+                }
+                log_mbed_ret(ret, "mbedtls_pem_write_buffer");
+                return ret;
+            }
+            
+            if (olen > 0 && buf[olen-1] == '\0') {
+                olen = olen - 1; // Not include '\0'
+            }
+            certData.append((const char*)buf.data(), olen);
+        }
+        
         string rootData;
         if (!root_cert_locator_(certData, rootData))
             return -1;//TEMP

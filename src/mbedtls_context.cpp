@@ -593,7 +593,7 @@ namespace sockpp {
         string certData;
         for (auto crt = child; crt; crt = crt->next) {
             size_t olen = 0;
-            unsigned char buf[4096];
+            unsigned char buf[10000];
             int ret = mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n",
                                                "-----END CERTIFICATE-----\n",
                                                crt->raw.p, crt->raw.len,

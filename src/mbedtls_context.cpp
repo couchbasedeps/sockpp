@@ -415,8 +415,10 @@ namespace sockpp {
             switch (result.error) {
                 case EPIPE:
                 case ECONNRESET:
+                case ECONNABORTED:
 #ifdef _WIN32
                 case WSAECONNRESET:
+                case WSAECONNABORTED:
 #endif
                     return MBEDTLS_ERR_NET_CONN_RESET;
                 case EINTR:

@@ -142,7 +142,7 @@ namespace sockpp {
 
         tls_socket(std::unique_ptr<stream_socket> stream)
         :base(PLACEHOLDER_SOCKET)
-        ,stream_(move(stream))
+        ,stream_(std::move(stream))
         { }
 
         /**

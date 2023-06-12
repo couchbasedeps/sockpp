@@ -133,7 +133,7 @@ namespace sockpp {
         mbedtls_socket(unique_ptr<stream_socket> base,
                        mbedtls_context &context,
                        const string &hostname)
-        :tls_socket(move(base))
+        :tls_socket(std::move(base))
         ,context_(context)
         {
             mbedtls_ssl_init(&ssl_);
@@ -770,8 +770,8 @@ namespace sockpp {
         }
 
         set_identity(ident_cert.get(), ident_key.get());
-        identity_cert_ = move(ident_cert);
-        identity_key_  = move(ident_key);
+        identity_cert_ = std::move(ident_cert);
+        identity_key_  = std::move(ident_key);
     }
 
 
@@ -792,7 +792,7 @@ namespace sockpp {
                                                         const std::string &peer_name)
     {
         assert(socketRole == role());
-        return make_unique<mbedtls_socket>(move(socket), *this, peer_name);
+        return make_unique<mbedtls_socket>(std::move(socket), *this, peer_name);
     }
 
 

@@ -124,7 +124,7 @@ namespace sockpp {
             if (ret != 0) {
                 char msg[100];
                 mbedtls_strerror(ret, msg, sizeof(msg));
-                log(1, "mbedtls error -0x%04X from %s: %s", -ret, fn, msg);
+                log(1, "mbedtls error -0x%04X from %s: %s", unsigned(-ret), fn, msg);
             }
             return ret;
         }
@@ -367,7 +367,8 @@ namespace sockpp {
                 int err = translate_mbed_err(ret);
                 if (ret == MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE)
                     err = mbedtls_context::FATAL_ERROR_ALERT_BASE - ssl_.in_msg[1];
-                log(1, "---closing mbedtls_socket with error (mbed status -0x%x, last_error %d) ---", -ret, err);
+                log(1, "---closing mbedtls_socket with error (mbed status -0x%x, last_error %d) ---",
+                    unsigned(-ret), err);
                 reset(); // marks me as closed/invalid
                 clear(err); // sets last_error
 
@@ -456,7 +457,7 @@ namespace sockpp {
         if (ret != 0) {
             char msg[100];
             mbedtls_strerror(ret, msg, sizeof(msg));
-            fprintf(stderr, "TLS: mbedtls error -0x%04X from %s: %s\n", -ret, fn, msg);
+            fprintf(stderr, "TLS: mbedtls error -0x%04X from %s: %s\n", unsigned(-ret), fn, msg);
         }
         return ret;
     }

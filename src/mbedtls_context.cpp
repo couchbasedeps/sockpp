@@ -73,6 +73,11 @@
 	#pragma comment (lib, "cryptui.lib")
 #endif
 
+#ifdef MBEDTLS_2_COMPAT
+#define private_in_msg in_msg
+#define private_endpoint endpoint
+#endif
+
 
 namespace sockpp {
     using namespace std;
@@ -110,7 +115,8 @@ namespace sockpp {
 
     public:
 
-#ifdef MBEDTLS_DEBUG_C
+
+#if 0 && defined(MBEDTLS_DEBUG_C)
         #define log(LEVEL, FMT,...) do { \
             auto ssl = &ssl_; \
             MBEDTLS_SSL_DEBUG_MSG(LEVEL, ("SockPP: " FMT, ## __VA_ARGS__)); \
@@ -366,7 +372,7 @@ namespace sockpp {
                 log_mbed_ret(ret, fn);
                 int err = translate_mbed_err(ret);
                 if (ret == MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE)
-                    err = mbedtls_context::FATAL_ERROR_ALERT_BASE - ssl_.in_msg[1];
+                    err = mbedtls_context::FATAL_ERROR_ALERT_BASE - ssl_.private_in_msg[1];
                 log(1, "---closing mbedtls_socket with error (mbed status -0x%x, last_error %d) ---",
                     unsigned(-ret), err);
                 reset(); // marks me as closed/invalid
@@ -764,7 +770,11 @@ namespace sockpp {
         unique_ptr<key> ident_key(new key);
         int err = mbedtls_pk_parse_key(ident_key.get(),
                                        (const uint8_t*) private_key_data.data(),
-                                       private_key_data.size(), NULL, 0);
+                                       private_key_data.size(), NULL, 0
+#ifndef MBEDTLS_2_COMPAT
+                                       ,mbedtls_ctr_drbg_random, get_drbg_context()
+#endif
+                                       );
         if( err != 0 ) {
             log_mbed_ret(err, "mbedtls_pk_parse_key");
             throw sys_error(err);
@@ -784,7 +794,7 @@ namespace sockpp {
 
 
     mbedtls_context::role_t mbedtls_context::role() {
-        return (ssl_config_->endpoint == MBEDTLS_SSL_IS_CLIENT) ? CLIENT : SERVER;
+        return (ssl_config_->private_endpoint == MBEDTLS_SSL_IS_CLIENT) ? CLIENT : SERVER;
     }
 
 

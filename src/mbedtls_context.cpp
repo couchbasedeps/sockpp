@@ -735,6 +735,8 @@ namespace sockpp {
             pinned_cert_validation_result_ = (crt->raw.len == pinned_cert_->raw.len &&
                                               0 == memcmp(crt->raw.p, pinned_cert_->raw.p, crt->raw.len));
         }
+		
+		auto &callback = get_auth_callback();
         
         if (depth == 0) { // leaf cert
             received_cert_data_ = string((const char *)crt->raw.p, crt->raw.len);
@@ -742,7 +744,7 @@ namespace sockpp {
             int status = -1;
             if (pinned_cert_) {
                 status = pinned_cert_validation_result_;
-            } else if (auto &callback = get_auth_callback(); callback) {
+            } else if (callback) {
                 string certData((const char*)crt->raw.p, crt->raw.len);
                 status = callback(certData);
             }
@@ -753,7 +755,7 @@ namespace sockpp {
                 *flags |= MBEDTLS_X509_BADCERT_OTHER;
             }
         } else {
-            if (pinned_cert_) {
+            if (pinned_cert_ || callback) {
                 // We only care the result when last callback is called, clear all other errors
                 *flags = 0;
             }

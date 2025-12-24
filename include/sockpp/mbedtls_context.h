@@ -108,6 +108,8 @@ namespace sockpp {
         
         const std::string& get_peer_certificate() const { return received_cert_data_; }
 
+        mbedtls_ssl_config* get_ssl_config() const {return ssl_config_.get();}
+
         /**
          * TLS "fatal alert" codes are mapped into error codes returned from the socket's last_error().
          * This mapping is done in mbedTLS style: a value of -0xF0xx, where xx is the hex value of the alert.

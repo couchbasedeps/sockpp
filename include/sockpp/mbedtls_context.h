@@ -55,6 +55,7 @@
 
 struct mbedtls_pk_context;
 struct mbedtls_ssl_config;
+struct mbedtls_ssl_context;
 struct mbedtls_x509_crt;
 
 namespace sockpp {
@@ -106,7 +107,33 @@ namespace sockpp {
         using Logger = std::function<void(int level, const char *filename, int line, const char *message)>;
         void set_logger(int threshold, Logger);
         
-        const std::string& get_peer_certificate() const { return received_cert_data_; }
+        /**
+         * The results of verifying one peer's certificate chain.
+         *
+         * This state belongs to a single TLS connection, so it must NOT be stored on the
+         * context: one context is routinely shared by many sockets that handshake on
+         * different threads at the same time (e.g. a listener accepting connections), and
+         * concurrent writes to a shared std::string corrupt the heap. [CBL-8759]
+         */
+        struct verify_state {
+            /// Did any cert in the chain match the context's pinned cert?
+            bool pinned_cert_matched {false};
+            /// Raw (DER) data of the peer's leaf cert, as seen during verification.
+            /// Needed because mbedTLS discards the peer cert when a handshake fails.
+            std::string peer_cert_data;
+
+            // Set by setup_verify(); callers should leave it alone.
+            mbedtls_context* context {nullptr};
+        };
+
+        /**
+         * Directs this context's certificate verification callback to record its results in
+         * `state`, for the one connection `ssl`. `state` must outlive `ssl`.
+         *
+         * Anyone who sets up their own `mbedtls_ssl_context` from `get_ssl_config()` should
+         * call this; without it the verification results have nowhere per-connection to live.
+         */
+        void setup_verify(mbedtls_ssl_context *ssl, verify_state *state);
 
         mbedtls_ssl_config* get_ssl_config() const {return ssl_config_.get();}
 
@@ -121,7 +148,7 @@ namespace sockpp {
         struct cert;
         struct key;
 
-        int verify_callback(mbedtls_x509_crt *crt, int depth, uint32_t *flags);
+        int verify_callback(verify_state &state, mbedtls_x509_crt *crt, int depth, uint32_t *flags);
         int trusted_cert_callback(void *context, mbedtls_x509_crt const *child,
                                   mbedtls_x509_crt **candidates);
         static std::unique_ptr<cert> parse_cert(const std::string &cert_data, bool partialOk);
@@ -130,8 +157,6 @@ namespace sockpp {
         RootCertLocator root_cert_locator_;
         std::unique_ptr<cert> root_certs_;
         std::unique_ptr<cert> pinned_cert_;
-        bool pinned_cert_validation_result_ {false};
-        std::string received_cert_data_;
 
         std::unique_ptr<cert> identity_cert_;
         std::unique_ptr<key> identity_key_;

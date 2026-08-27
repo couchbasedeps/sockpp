@@ -109,6 +109,9 @@ namespace sockpp {
     class mbedtls_socket : public tls_socket {
     private:
         mbedtls_context& context_;
+        // Declared before ssl_ so it outlives the SSL context that points at it.
+        // It is mine alone, not the (shared) context's. [CBL-8759]
+        mbedtls_context::verify_state verify_state_;
         mbedtls_ssl_context ssl_;
         chrono::microseconds read_timeout_ {0L};
         bool open_ = false;
@@ -151,6 +154,9 @@ namespace sockpp {
             if (check_mbed_setup(mbedtls_ssl_setup(&ssl_, context_.ssl_config_.get()),
                                "mbedtls_ssl_setup"))
                 return;
+
+            // Verification results go in my own verify_state_, not the shared context's:
+            context_.setup_verify(&ssl_, &verify_state_);
             if (!hostname.empty() && check_mbed_setup(mbedtls_ssl_set_hostname(&ssl_, hostname.c_str()),
                                                     "mbedtls_ssl_set_hostname"))
                 return;
@@ -255,7 +261,7 @@ namespace sockpp {
             if (!cert) {
                 // This should only happen in a failed handshake scenario, or if there
                 // was no cert to begin with
-                return context_.get_peer_certificate();
+                return verify_state_.peer_cert_data;
             }
             
             return string((const char*)cert->raw.p, cert->raw.len);
@@ -577,11 +583,28 @@ namespace sockpp {
         if (roots)
             mbedtls_ssl_conf_ca_chain(ssl_config_.get(), roots, nullptr);
 
-        // Install a custom verification callback that will call my verify_callback():
+        // Install a custom verification callback that will call my verify_callback().
+        //
+        // This config-wide callback is only a fallback, for SSL contexts set up straight from
+        // get_ssl_config() whose owner never called setup_verify(); mbedtls_socket and anyone
+        // else who calls setup_verify() gets a per-connection callback that takes precedence.
+        // The fallback's state has to live *somewhere*, and it cannot be `this` -- one context
+        // is shared by every connection, so that is exactly the data race that made rejected
+        // peers abort the process [CBL-8759]. A thread-local works instead: mbedTLS verifies a
+        // whole cert chain synchronously inside one mbedtls_ssl_handshake() call, so a chain
+        // always sees consistent state and two connections can never interleave.
         mbedtls_ssl_conf_verify(
                         ssl_config_.get(),
                         [](void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
-                            return ((mbedtls_context*)ctx)->verify_callback(crt,depth,flags);
+                            static thread_local verify_state sState;
+                            static thread_local int sPrevDepth = -1;
+                            // mbedTLS walks a chain from root to leaf, so a depth that isn't
+                            // lower than the last one means a new chain has begun:
+                            if (depth >= sPrevDepth)
+                                sState = {};
+                            sPrevDepth = depth;
+                            return ((mbedtls_context*)ctx)->verify_callback(sState, crt,
+                                                                           depth, flags);
                         },
                         this);
     }
@@ -717,6 +740,18 @@ namespace sockpp {
     }
 
 
+    void mbedtls_context::setup_verify(mbedtls_ssl_context *ssl, verify_state *state) {
+        state->context = this;
+        // A connection-specific callback; takes precedence over mbedtls_ssl_conf_verify()'s.
+        mbedtls_ssl_set_verify(ssl,
+                        [](void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+                            auto state = (verify_state*)ctx;
+                            return state->context->verify_callback(*state, crt, depth, flags);
+                        },
+                        state);
+    }
+
+
     // Callback from mbedTLS cert validation (see above)
     //
     // When a pinned cert is specified, the verify_callback will compare the pinned cert with
@@ -724,31 +759,35 @@ namespace sockpp {
     // presented cert (leaf cert) is trusted.
     //
     // The verify_callback is called for each cert in the chain from root to leaf cert. The
-    // pinned_cert_validation_result_ will store the previous comparison result. If the
+    // state's pinned_cert_matched will store the previous comparison result. If the
     // comparison result is already matched, the comparison will be skipped.
     //
     // The last callback for the leaf cert is where the comparison or verification is set
     // to the status flags. The flags of the parent certs are ignored (clear).
     //
-    int mbedtls_context::verify_callback(mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
-        if (pinned_cert_ && !pinned_cert_validation_result_) {
-            pinned_cert_validation_result_ = (crt->raw.len == pinned_cert_->raw.len &&
-                                              0 == memcmp(crt->raw.p, pinned_cert_->raw.p, crt->raw.len));
+    // `state` accumulates results across the chain and so must belong to this one connection;
+    // see the comment on mbedtls_ssl_conf_verify() in the constructor. Nothing here may touch
+    // mutable state on `this`, which is shared by every connection using this context.
+    //
+    int mbedtls_context::verify_callback(verify_state &state,
+                                        mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+        if (pinned_cert_ && !state.pinned_cert_matched) {
+            state.pinned_cert_matched = (crt->raw.len == pinned_cert_->raw.len &&
+                                         0 == memcmp(crt->raw.p, pinned_cert_->raw.p, crt->raw.len));
         }
-		
-		auto &callback = get_auth_callback();
-        
+
+        auto &callback = get_auth_callback();
+
         if (depth == 0) { // leaf cert
-            received_cert_data_ = string((const char *)crt->raw.p, crt->raw.len);
-            
+            state.peer_cert_data.assign((const char *)crt->raw.p, crt->raw.len);
+
             int status = -1;
             if (pinned_cert_) {
-                status = pinned_cert_validation_result_;
+                status = state.pinned_cert_matched;
             } else if (callback) {
-                string certData((const char*)crt->raw.p, crt->raw.len);
-                status = callback(certData);
+                status = callback(state.peer_cert_data);
             }
-            
+
             if (status > 0) {
                 *flags &= ~(MBEDTLS_X509_BADCERT_NOT_TRUSTED | MBEDTLS_X509_BADCERT_CN_MISMATCH);
             } else if (status == 0) {

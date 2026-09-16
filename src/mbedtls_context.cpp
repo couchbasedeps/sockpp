@@ -808,10 +808,14 @@ namespace sockpp {
     {
         auto ident_cert = parse_cert(certificate_data, false);
 
+        size_t keylen = private_key_data.size();
+        if (keylen > 0 && private_key_data.find("-----BEGIN") != std::string::npos)
+            ++keylen;
+
         unique_ptr<key> ident_key(new key);
         int err = mbedtls_pk_parse_key(ident_key.get(),
                                        (const uint8_t*) private_key_data.data(),
-                                       private_key_data.size(), NULL, 0
+                                       keylen, NULL, 0
 #ifndef MBEDTLS_2_COMPAT
                                        ,mbedtls_ctr_drbg_random, get_drbg_context()
 #endif
